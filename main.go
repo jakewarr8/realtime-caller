@@ -1,16 +1,16 @@
 package main
 
 import (
-	"os"
+	"encoding/json"
 	"fmt"
+	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
+	"github.com/twilio/twilio-go"
+	api "github.com/twilio/twilio-go/rest/api/v2010"
 	"log"
 	"net/http"
+	"os"
 	"sync"
-	"encoding/json"
-	"github.com/gorilla/websocket"
-	"github.com/twilio/twilio-go"
-	"github.com/joho/godotenv"
-	api "github.com/twilio/twilio-go/rest/api/v2010"
 )
 
 var upgrader = websocket.Upgrader{
@@ -24,12 +24,12 @@ type ConnectionPair struct {
 	conn2 *websocket.Conn
 	mu    sync.Mutex
 	ready bool
-	ssid string
+	ssid  string
 }
 
 var connectionPair = &ConnectionPair{}
 
-func main () {
+func main() {
 	fmt.Println("realtime-caller")
 
 	err := godotenv.Load()
@@ -47,8 +47,8 @@ func main () {
 }
 
 func setupRoutes() {
-    http.HandleFunc("/", homePage)
-    http.HandleFunc("/ws", wsEndpoint)
+	http.HandleFunc("/", homePage)
+	http.HandleFunc("/ws", wsEndpoint)
 }
 
 func homePage(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func wsEndpoint(w http.ResponseWriter, r *http.Request) {
 	connectionPair.conn1 = conn
 	connectionPair.ready = true
 	connectionPair.mu.Unlock()
-	
+
 	// establish ws client with openai
 	dialWs()
 }
@@ -82,12 +82,11 @@ func dialWs() {
 		return
 	}
 
-  	secretKey := os.Getenv("OPENAI_API_KEY")
+	secretKey := os.Getenv("OPENAI_API_KEY")
 	serverAddr := "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17"
 	headers := http.Header{}
-	headers.Add("Authorization", "Bearer " + secretKey)
+	headers.Add("Authorization", "Bearer "+secretKey)
 	headers.Add("OpenAI-Beta", "realtime=v1")
-	
 
 	// Connect to the WebSocket server
 	conn, _, err := websocket.DefaultDialer.Dial(serverAddr, headers)
@@ -96,9 +95,9 @@ func dialWs() {
 		return
 	}
 	fmt.Println("WS dial connection established.")
-	
+
 	connectionPair.conn2 = conn
-	
+
 	// initalize session with openai websocket using json config
 
 	session_update := `{
@@ -124,7 +123,7 @@ func dialWs() {
 }
 
 type BaseEvent struct {
-	Event string `json:"event"`
+	Event     string `json:"event"`
 	StreamSid string `json:"streamSid"`
 }
 
@@ -146,17 +145,17 @@ type AudioAppend struct {
 }
 
 type AiEvent struct {
-	Type         string `json:"type"`
+	Type string `json:"type"`
 }
 
 type AiDeltaEvent struct {
-	Type         string `json:"type"`
-	Delta        string `json:"delta"`
+	Type  string `json:"type"`
+	Delta string `json:"delta"`
 }
 
 type TwilioPayload struct {
-	Event     string `json:"event"`
-	StreamSid string `json:"streamSid"`
+	Event     string       `json:"event"`
+	StreamSid string       `json:"streamSid"`
 	Media     MediaPayload `json:"media"`
 }
 
@@ -180,14 +179,13 @@ func pipeConnections(conn1, conn2 *websocket.Conn) {
 				fmt.Println("Error reading from conn1:", err)
 				break
 			}
-			
 
 			var baseEvent BaseEvent
 			if err := json.Unmarshal(message, &baseEvent); err != nil {
 				fmt.Println("Invalid JSON")
 				return
 			}
-			
+
 			//read twilio event type
 			if baseEvent.Event == "media" {
 				var eventMedia EventMedia
@@ -212,10 +210,10 @@ func pipeConnections(conn1, conn2 *websocket.Conn) {
 			} else {
 				fmt.Println("msg from twilio")
 				fmt.Println(string(message))
-			}		
+			}
 		}
 	}()
-	
+
 	// read data from openai write to twilio
 	go func() {
 		defer wg.Done()
@@ -228,7 +226,7 @@ func pipeConnections(conn1, conn2 *websocket.Conn) {
 				fmt.Println("Error reading from conn2:", err)
 				break
 			}
-			
+
 			var response AiEvent
 			if err := json.Unmarshal(message, &response); err != nil {
 				fmt.Println("Invalid JSON")
@@ -243,8 +241,8 @@ func pipeConnections(conn1, conn2 *websocket.Conn) {
 				}
 
 				twilioPayload, err := json.Marshal(TwilioPayload{
-					Event: "media", 
-					StreamSid: connectionPair.ssid, 
+					Event:     "media",
+					StreamSid: connectionPair.ssid,
 					Media: MediaPayload{
 						Payload: eventDelta.Delta,
 					}})
@@ -253,7 +251,7 @@ func pipeConnections(conn1, conn2 *websocket.Conn) {
 				}
 
 				//fmt.Println("payload from openai", twilioPayload)
-				
+
 				err = conn1.WriteMessage(messageType, twilioPayload)
 				if err != nil {
 					fmt.Println("Error writing to conn1:", err)
@@ -293,7 +291,7 @@ func makeCall(numto string) error {
 		os.Exit(1)
 	} else {
 		if resp.Sid != nil {
-			fmt.Println("made call 1",*resp.Sid)
+			fmt.Println("made call 1", *resp.Sid)
 		} else {
 			fmt.Println("made call 2", resp.Sid)
 		}
